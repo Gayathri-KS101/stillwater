@@ -261,28 +261,86 @@ export async function deleteEntry(id: string): Promise<void> {
   writeFallback(readFallback().filter((e) => e.id !== id));
 }
 
-/** Load every entry, newest first. */
+/**
+ * Load every entry, newest first.
+ * Strategy:
+ *   1. Return local entries immediately (IndexedDB → localStorage fallback)
+ *      so the UI is never blank while the network request is in flight.
+ *   2. Fire a background fetch from Google Sheets (if the webhook is set).
+ *      When that resolves, merge the remote entries into local storage so
+ *      future loads start from the combined, up-to-date set.
+ *
+ * Callers that want the live-updated list should listen to the promise;
+ * the dashboard re-fetches after save so one load cycle is enough.
+ */
 export async function loadEntries(): Promise<JournalEntry[]> {
+  // --- 1. Read local entries first ---
+  let local: JournalEntry[] = [];
+
   if (hasIndexedDB()) {
     try {
       const db = await openDB();
-      const entries = await new Promise<JournalEntry[]>((resolve, reject) => {
+      local = await new Promise<JournalEntry[]>((resolve, reject) => {
         const tx = db.transaction(STORE_NAME, "readonly");
         const store = tx.objectStore(STORE_NAME);
         const request = store.getAll();
         request.onsuccess = () => resolve(request.result as JournalEntry[]);
         request.onerror = () => reject(request.error);
       });
-      const sorted = entries.sort((a, b) => b.timestamp - a.timestamp);
-      // keep the fallback mirror fresh for next time
-      writeFallback(sorted);
-      return sorted;
     } catch {
-      // fall through to localStorage
+      local = readFallback();
     }
+  } else {
+    local = readFallback();
   }
 
-  return readFallback().sort((a, b) => b.timestamp - a.timestamp);
+  // --- 2. Fetch from Sheets and merge ---
+  if (SHEETS_WEBHOOK) {
+    try {
+      const remote = await fetchEntriesFromSheets();
+      if (remote.length > 0) {
+        // Merge: remote wins on conflict (same id), local-only entries kept
+        const byId = new Map<string, JournalEntry>();
+        for (const e of local)  byId.set(e.id, e);
+        for (const e of remote) byId.set(e.id, e); // remote overwrites
+        const merged = [...byId.values()].sort((a, b) => b.timestamp - a.timestamp);
+
+        // Persist the merged set locally so next load is instant
+        if (hasIndexedDB()) {
+          try {
+            const db = await openDB();
+            await new Promise<void>((resolve, reject) => {
+              const tx = db.transaction(STORE_NAME, "readwrite");
+              const store = tx.objectStore(STORE_NAME);
+              store.clear();
+              for (const e of merged) store.put(e);
+              tx.oncomplete = () => resolve();
+              tx.onerror = () => reject(tx.error);
+            });
+          } catch { /* ignore */ }
+        }
+        writeFallback(merged);
+        return merged;
+      }
+    } catch { /* network unavailable — fall through to local */ }
+  }
+
+  const sorted = local.sort((a, b) => b.timestamp - a.timestamp);
+  writeFallback(sorted);
+  return sorted;
+}
+
+/** Fetch all entries from Google Sheets via the Apps Script GET endpoint. */
+async function fetchEntriesFromSheets(): Promise<JournalEntry[]> {
+  if (!SHEETS_WEBHOOK) return [];
+  const res = await fetch(SHEETS_WEBHOOK, { cache: "no-store" });
+  if (!res.ok) return [];
+  const data = await res.json();
+  if (!Array.isArray(data)) return [];
+  // Basic validation: must have an id and timestamp
+  return (data as JournalEntry[]).filter(
+    (e) => e && typeof e.id === "string" && typeof e.timestamp === "number",
+  );
 }
 
 // ---------------------------------------------------------------------------

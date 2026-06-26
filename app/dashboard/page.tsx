@@ -3,18 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BookHeart, Flame, NotebookPen, Activity, Plus, ArrowRight, Trash2, X } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-} from "recharts";
+import { BookHeart, Flame, NotebookPen, Plus, ArrowRight, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   computeStreak,
@@ -25,8 +14,6 @@ import {
   HELPED_OPTIONS,
   type JournalEntry,
 } from "@/lib/data";
-
-const COLORS = ["#a78bfa", "#7dd3fc", "#fca5a5", "#fcd34d", "#86efac", "#f0abfc", "#fdba74", "#a5b4fc", "#fda4af"];
 
 export default function Dashboard() {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
@@ -41,33 +28,6 @@ export default function Dashboard() {
   }, []);
 
   const streak = useMemo(() => computeStreak(entries), [entries]);
-  const avgIntensity = useMemo(
-    () => (entries.length ? entries.reduce((a, e) => a + e.intensity, 0) / entries.length : 0),
-    [entries],
-  );
-
-  const last14 = useMemo(() => {
-    const days: { day: string; intensity: number }[] = [];
-    const map = new Map<string, number[]>();
-    for (const e of entries) {
-      const key = new Date(e.timestamp).toDateString();
-      map.set(key, [...(map.get(key) ?? []), e.intensity]);
-    }
-    for (let i = 13; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      const vals = map.get(d.toDateString()) ?? [];
-      const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
-      days.push({ day: d.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2), intensity: Number(avg.toFixed(1)) });
-    }
-    return days;
-  }, [entries]);
-
-  const moodDist = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const e of entries) for (const m of e.moods) counts.set(m, (counts.get(m) ?? 0) + 1);
-    return MOODS.map((m) => ({ name: m.label, value: counts.get(m.key) ?? 0, emoji: m.emoji })).filter((m) => m.value > 0);
-  }, [entries]);
 
   const onDelete = async (id: string) => {
     setEntries((prev) => prev.filter((e) => e.id !== id));
