@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 250 60% 99%;
+  --foreground: 260 15% 18%;
+  --muted: 250 40% 95%;
+  --muted-foreground: 260 10% 45%;
+  --border: 260 20% 90%;
+  --secondary: 260 30% 94%;
+  --secondary-foreground: 260 15% 25%;
+  --primary: 262 83% 58%;
+  --primary-foreground: 0 0% 100%;
+  --radius: 1rem;
+
+  --shadow-soft: 0 8px 30px rgba(124, 58, 237, 0.12);
+  --shadow-glow: 0 8px 30px rgba(124, 58, 237, 0.25);
+}
+
+* {
+  border-color: hsl(var(--border));
+}
+
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.text-gradient {
+  background: linear-gradient(135deg, #7c3aed, #0284c7);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.font-display {
+  font-family: "Iowan Old Style", "Palatino Linotype", Georgia, ui-serif, serif;
+}
