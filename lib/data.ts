@@ -158,18 +158,31 @@ async function postToSheets<T>(payload: SheetsAction): Promise<T> {
 }
 
 async function getAllFromSheets(): Promise<JournalEntry[]> {
-  const res = await fetch(getWebhookUrl(), { method: "GET", cache: "no-store" });
-  if (!res.ok) {
-    throw new SheetsError(`Sheets request failed: ${res.status} ${res.statusText}`);
-  }
-  const data = await res.json();
-  if (Array.isArray(data)) return data as JournalEntry[];
+  console.log("WEBHOOK =", getWebhookUrl());
+
+  const res = await fetch(getWebhookUrl(), {
+    method: "GET",
+    cache: "no-store",
+  });
+
+  console.log("STATUS =", res.status);
+
+  const text = await res.text();
+
+  console.log("RAW =", text);
+
+  const data = JSON.parse(text);
+
+  console.log("PARSED =", data);
+
+  if (Array.isArray(data)) return data;
+
   if (data && typeof data === "object" && "error" in data) {
-    throw new SheetsError(String((data as { error: unknown }).error));
+    throw new SheetsError(String(data.error));
   }
+
   return [];
 }
-
 // ---------------------------------------------------------------------------
 // Public CRUD API (same signatures the UI already calls)
 // ---------------------------------------------------------------------------
