@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, ArrowRight, Check, Mic, BookHeart, Pencil, Home } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Mic, MicOff, BookHeart, Pencil, Home } from "lucide-react";
+import { useSpeechToText } from "@/hooks/use-speech-to-text";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -235,6 +236,19 @@ function StepIntensity({ draft, update }: { draft: Draft; update: <K extends key
 }
 
 function StepStory({ draft, update }: { draft: Draft; update: <K extends keyof Draft>(k: K, v: Draft[K]) => void }) {
+  const onSpeechResult = useCallback(
+    (text: string) => {
+      const sep = draft.journal && !draft.journal.endsWith(" ") ? " " : "";
+      update("journal", draft.journal + sep + text);
+      toast.success("Voice captured", { description: "Your words have been added." });
+    },
+    [draft.journal, update],
+  );
+
+  const { supported, listening, transcript, toggle } = useSpeechToText({
+    onResult: onSpeechResult,
+  });
+
   return (
     <div>
       <StepTitle title="What happened?" sub="Don't worry about grammar. Just tell the story." />
@@ -245,15 +259,55 @@ function StepStory({ draft, update }: { draft: Draft; update: <K extends keyof D
           placeholder="Today my teammate ignored my message..."
           className="min-h-[220px] resize-none border-0 bg-transparent text-base shadow-none focus-visible:ring-0"
         />
+
+        {/* Live transcript preview */}
+        <AnimatePresence>
+          {listening && transcript && (
+            <motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 6 }}
+              className="absolute bottom-16 left-4 right-16 rounded-xl bg-lavender/20 px-3 py-2 text-sm text-muted-foreground backdrop-blur-sm"
+            >
+              <span className="mr-1 inline-block h-2 w-2 animate-pulse rounded-full bg-red-400" />
+              {transcript}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <button
           type="button"
-          onClick={() => toast("Voice journaling coming soon.", { description: "We're polishing this gently." })}
-          className="absolute bottom-4 right-4 grid h-11 w-11 place-items-center rounded-full bg-gradient-to-br from-lavender-deep to-sky-deep text-white shadow-[var(--shadow-soft)] transition-transform hover:scale-105"
-          aria-label="Voice journal"
+          onClick={() => {
+            if (!supported) {
+              toast.error("Not supported", {
+                description: "Your browser doesn't support speech recognition. Try Chrome or Edge.",
+              });
+              return;
+            }
+            toggle();
+          }}
+          className={cn(
+            "absolute bottom-4 right-4 grid h-11 w-11 place-items-center rounded-full text-white shadow-[var(--shadow-soft)] transition-all",
+            listening
+              ? "animate-pulse bg-red-500 scale-110"
+              : "bg-gradient-to-br from-lavender-deep to-sky-deep hover:scale-105",
+          )}
+          aria-label={listening ? "Stop voice journal" : "Start voice journal"}
         >
-          <Mic className="h-5 w-5" />
+          {listening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
         </button>
       </div>
+
+      {/* Hint text */}
+      {listening && (
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="mt-3 text-center text-xs text-muted-foreground"
+        >
+          Listening… tap the mic again to stop
+        </motion.p>
+      )}
     </div>
   );
 }
