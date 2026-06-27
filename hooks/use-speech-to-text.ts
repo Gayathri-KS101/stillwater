@@ -39,6 +39,17 @@ export function useSpeechToText({
   const [transcript, setTranscript] = useState("");
   const recognitionRef = useRef<SpeechRecognitionType>(null);
 
+  // Whether the user intends to keep recording (vs. a natural silence pause)
+  const intentActiveRef = useRef(false);
+  // Accumulate all finalized text across auto-restart sessions
+  const allFinalizedRef = useRef("");
+
+  // Keep latest callbacks in refs to avoid re-creating recognition on every render
+  const onResultRef = useRef(onResult);
+  onResultRef.current = onResult;
+  const onInterimRef = useRef(onInterim);
+  onInterimRef.current = onInterim;
+
   // Check support on mount
   useEffect(() => {
     const SR =
@@ -46,12 +57,12 @@ export function useSpeechToText({
     setSupported(!!SR);
   }, []);
 
-  const start = useCallback(() => {
+  const startSession = useCallback(() => {
     const SR =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) return;
 
-    // Stop any existing recognition
+    // Abort any existing instance
     if (recognitionRef.current) {
       try { recognitionRef.current.abort(); } catch {}
     }
@@ -59,53 +70,90 @@ export function useSpeechToText({
     const recognition = new SR();
     recognition.lang = lang;
     recognition.interimResults = true;
-    recognition.continuous = true;
+    // Use NON-continuous mode so the API stops cleanly on silence
+    // instead of looping and emitting duplicate text.
+    recognition.continuous = false;
     recognition.maxAlternatives = 1;
     recognitionRef.current = recognition;
 
-    let finalTranscript = "";
-
     recognition.onstart = () => {
       setListening(true);
-      setTranscript("");
     };
 
     recognition.onresult = (event: any) => {
+      let sessionFinal = "";
       let interim = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
+
+      for (let i = 0; i < event.results.length; i++) {
         const result = event.results[i];
         if (result.isFinal) {
-          finalTranscript += result[0].transcript + " ";
+          sessionFinal += result[0].transcript;
         } else {
           interim += result[0].transcript;
         }
       }
 
-      const currentTranscript = (finalTranscript + interim).trim();
-      setTranscript(currentTranscript);
-      onInterim?.(currentTranscript);
+      const currentDisplay = (allFinalizedRef.current + (sessionFinal || interim)).trim();
+      setTranscript(currentDisplay);
+      onInterimRef.current?.(currentDisplay);
+
+      // When the result is finalized, append it to our accumulated text
+      if (sessionFinal) {
+        const sep = allFinalizedRef.current && !allFinalizedRef.current.endsWith(" ") ? " " : "";
+        allFinalizedRef.current += sep + sessionFinal;
+      }
     };
 
     recognition.onerror = (event: any) => {
-      // "aborted" is expected when we manually stop
-      if (event.error !== "aborted") {
+      // "aborted" and "no-speech" are expected during normal usage
+      if (event.error !== "aborted" && event.error !== "no-speech") {
         console.warn("Speech recognition error:", event.error);
       }
-      setListening(false);
+      // On "no-speech", we still want to auto-restart below
+      if (event.error !== "no-speech" && event.error !== "aborted") {
+        intentActiveRef.current = false;
+        setListening(false);
+      }
     };
 
     recognition.onend = () => {
+      // If user still wants to record, auto-restart after natural silence pause
+      if (intentActiveRef.current) {
+        try {
+          // Small delay to avoid rapid restart loops
+          setTimeout(() => {
+            if (intentActiveRef.current) {
+              startSession();
+            } else {
+              setListening(false);
+            }
+          }, 100);
+        } catch {
+          setListening(false);
+        }
+        return;
+      }
+
+      // User manually stopped — deliver final result
       setListening(false);
-      const trimmed = finalTranscript.trim();
+      const trimmed = allFinalizedRef.current.trim();
       if (trimmed) {
-        onResult?.(trimmed);
+        onResultRef.current?.(trimmed);
       }
     };
 
     recognition.start();
-  }, [lang, onResult, onInterim]);
+  }, [lang]);
+
+  const start = useCallback(() => {
+    allFinalizedRef.current = "";
+    setTranscript("");
+    intentActiveRef.current = true;
+    startSession();
+  }, [startSession]);
 
   const stop = useCallback(() => {
+    intentActiveRef.current = false;
     if (recognitionRef.current) {
       recognitionRef.current.stop();
     }
@@ -122,6 +170,7 @@ export function useSpeechToText({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      intentActiveRef.current = false;
       if (recognitionRef.current) {
         try { recognitionRef.current.abort(); } catch {}
       }
